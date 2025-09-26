@@ -215,6 +215,73 @@ router.post(
 
 /**
  * @swagger
+ * /api/counters/available:
+ *   get:
+ *     tags: [Counter Management]
+ *     summary: Get available counters for staff selection
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Available counters retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *                       isActive:
+ *                         type: boolean
+ *                       assignedStaffId:
+ *                         type: string
+ *                         nullable: true
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Insufficient permissions
+ */
+router.get(
+  "/available",
+  authenticate,
+  authorize([UserRole.staff]),
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    // Get all active counters that are not assigned to any staff
+    const availableCounters = await prisma.counter.findMany({
+      where: {
+        organizationId: req.user!.organizationId,
+        isActive: true,
+        assignedStaffId: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        isActive: true,
+        assignedStaffId: true,
+      },
+      orderBy: {
+        name: "asc",
+      },
+    });
+
+    res.json({
+      success: true,
+      data: availableCounters,
+    });
+  })
+);
+
+/**
+ * @swagger
  * /api/counters/{counterId}:
  *   get:
  *     tags: [Counter Management]
@@ -1205,6 +1272,220 @@ router.post(
       success: true,
       message: "Staff unassigned successfully",
       data: updatedCounter,
+    });
+  })
+);
+
+/**
+ * @swagger
+ * /api/counters/select:
+ *   post:
+ *     tags: [Counter Management]
+ *     summary: Select a counter for staff
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - counterId
+ *             properties:
+ *               counterId:
+ *                 type: string
+ *                 format: uuid
+ *                 description: ID of the counter to select
+ *     responses:
+ *       200:
+ *         description: Counter selected successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                     isActive:
+ *                       type: boolean
+ *                     assignedStaffId:
+ *                       type: string
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Insufficient permissions
+ *       404:
+ *         description: Counter not found
+ *       409:
+ *         description: Counter already assigned or staff already has a counter
+ */
+const selectCounterSchema = z.object({
+  counterId: z.string().uuid(),
+});
+
+router.post(
+  "/select",
+  authenticate,
+  authorize([UserRole.staff]),
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const validatedData = selectCounterSchema.parse(req.body);
+    const staffId = req.user!.id;
+
+    // Check if staff already has a counter assigned
+    const existingAssignment = await prisma.counter.findFirst({
+      where: {
+        organizationId: req.user!.organizationId,
+        assignedStaffId: staffId,
+      },
+    });
+
+    if (existingAssignment) {
+      return res.status(409).json({
+        success: false,
+        message: "You already have a counter assigned",
+      });
+    }
+
+    // Check if counter exists and is available
+    const counter = await prisma.counter.findFirst({
+      where: {
+        id: validatedData.counterId,
+        organizationId: req.user!.organizationId,
+        isActive: true,
+        assignedStaffId: null,
+      },
+    });
+
+    if (!counter) {
+      return res.status(404).json({
+        success: false,
+        message: "Counter not found or already assigned",
+      });
+    }
+
+    // Assign counter to staff
+    const updatedCounter = await prisma.counter.update({
+      where: { id: validatedData.counterId },
+      data: { assignedStaffId: staffId },
+      include: {
+        assignedStaff: {
+          select: {
+            id: true,
+            username: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    // Log the assignment
+    await prisma.systemLog.create({
+      data: {
+        organizationId: req.user!.organizationId,
+        userId: req.user!.id,
+        action: "counter_assigned",
+        entityType: "counter",
+        entityId: counter.id,
+        details: {
+          counterName: counter.name,
+          staffId: staffId,
+          staffUsername: req.user!.username,
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      data: updatedCounter,
+      message: "Counter selected successfully",
+    });
+  })
+);
+
+/**
+ * @swagger
+ * /api/counters/release:
+ *   post:
+ *     tags: [Counter Management]
+ *     summary: Release current counter assignment
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Counter released successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Insufficient permissions
+ *       404:
+ *         description: No counter assigned
+ */
+router.post(
+  "/release",
+  authenticate,
+  authorize([UserRole.staff]),
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const staffId = req.user!.id;
+
+    // Find the counter assigned to this staff
+    const assignedCounter = await prisma.counter.findFirst({
+      where: {
+        organizationId: req.user!.organizationId,
+        assignedStaffId: staffId,
+      },
+    });
+
+    if (!assignedCounter) {
+      return res.status(404).json({
+        success: false,
+        message: "No counter assigned to you",
+      });
+    }
+
+    // Release the counter
+    await prisma.counter.update({
+      where: { id: assignedCounter.id },
+      data: { assignedStaffId: null },
+    });
+
+    // Log the release
+    await prisma.systemLog.create({
+      data: {
+        organizationId: req.user!.organizationId,
+        userId: req.user!.id,
+        action: "counter_released",
+        entityType: "counter",
+        entityId: assignedCounter.id,
+        details: {
+          counterName: assignedCounter.name,
+          staffId: staffId,
+          staffUsername: req.user!.username,
+        },
+      },
+    });
+
+    res.json({
+      success: true,
+      message: "Counter released successfully",
     });
   })
 );

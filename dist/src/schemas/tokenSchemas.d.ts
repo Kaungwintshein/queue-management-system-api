@@ -633,8 +633,8 @@ export declare const queueStatusSchema: z.ZodObject<{
         staffName: z.ZodOptional<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
         isActive: boolean;
-        counterName: string;
         counterId: string;
+        counterName: string;
         averageServiceTime: number;
         queueLength: number;
         currentServing?: {
@@ -660,8 +660,8 @@ export declare const queueStatusSchema: z.ZodObject<{
         staffName?: string | undefined;
     }, {
         isActive: boolean;
-        counterName: string;
         counterId: string;
+        counterName: string;
         averageServiceTime: number;
         queueLength: number;
         currentServing?: {
@@ -779,8 +779,8 @@ export declare const queueStatusSchema: z.ZodObject<{
     };
     counterStats: {
         isActive: boolean;
-        counterName: string;
         counterId: string;
+        counterName: string;
         averageServiceTime: number;
         queueLength: number;
         currentServing?: {
@@ -898,8 +898,8 @@ export declare const queueStatusSchema: z.ZodObject<{
     };
     counterStats: {
         isActive: boolean;
-        counterName: string;
         counterId: string;
+        counterName: string;
         averageServiceTime: number;
         queueLength: number;
         currentServing?: {
