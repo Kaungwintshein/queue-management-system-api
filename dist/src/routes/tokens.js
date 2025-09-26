@@ -14,10 +14,76 @@ const router = (0, express_1.Router)();
 exports.tokensRouter = router;
 /**
  * @swagger
+ * /api/tokens/public:
+ *   post:
+ *     tags: [Tokens]
+ *     summary: Create a new token (public endpoint)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - customerType
+ *             properties:
+ *               customerType:
+ *                 type: string
+ *                 enum: [instant, browser, retail]
+ *               priority:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 3
+ *               notes:
+ *                 type: string
+ *                 description: Optional notes for the token
+ *     responses:
+ *       201:
+ *         description: Token created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     token:
+ *                       $ref: '#/components/schemas/Token'
+ *                     position:
+ *                       type: integer
+ *                       description: Position in queue
+ *                     estimatedWaitTime:
+ *                       type: integer
+ *                       description: Estimated wait time in minutes
+ *       400:
+ *         description: Invalid request data
+ */
+router.post("/public", rateLimiter_1.tokenCreationLimiter, (0, errorHandler_1.asyncHandler)(async (req, res) => {
+    // Get the default organization
+    const defaultOrg = await app_1.prisma.organization.findFirst({
+        where: { name: "Default Organization" },
+    });
+    if (!defaultOrg) {
+        throw new errors_1.AppError("Default organization not found", 500);
+    }
+    const validatedData = tokenSchemas_1.createTokenRequestSchema.parse(req.body);
+    const token = await tokenService_1.tokenService.createToken(validatedData, defaultOrg.id, undefined // No user ID for public tokens
+    );
+    res.status(201).json({
+        success: true,
+        message: "Token created successfully",
+        data: token,
+    });
+}));
+/**
+ * @swagger
  * /api/tokens:
  *   post:
  *     tags: [Tokens]
- *     summary: Create a new token
+ *     summary: Create a new token (authenticated)
  *     security:
  *       - bearerAuth: []
  *     requestBody:

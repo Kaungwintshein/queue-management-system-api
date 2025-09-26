@@ -74,6 +74,35 @@ export interface ServiceResult {
 }
 
 export class TokenService {
+  private async getTokenPosition(
+    tokenId: string,
+    organizationId: string
+  ): Promise<number> {
+    const token = await prisma.token.findUnique({
+      where: { id: tokenId },
+      select: { customerType: true, priority: true, createdAt: true },
+    });
+
+    if (!token) {
+      return 0;
+    }
+
+    // Count tokens of the same type and priority that were created before this token
+    const position = await prisma.token.count({
+      where: {
+        organizationId,
+        customerType: token.customerType,
+        priority: token.priority,
+        status: "waiting",
+        createdAt: {
+          lt: token.createdAt,
+        },
+      },
+    });
+
+    return position + 1; // Position is 1-based
+  }
+
   async createToken(
     request: CreateTokenRequest,
     organizationId: string,
@@ -164,13 +193,17 @@ export class TokenService {
         request.counterId
       );
 
-      const tokenWithEstimate = {
-        ...token,
+      // Calculate position in queue
+      const position = await this.getTokenPosition(token.id, organizationId);
+
+      const response: TokenCreationResponse = {
+        token,
+        position,
         estimatedWaitTime,
       };
 
       // Emit real-time update
-      io.to(`org:${organizationId}`).emit("token:created", tokenWithEstimate);
+      io.to(`org:${organizationId}`).emit("token:created", response);
       io.to(`org:${organizationId}`).emit(
         "queue:updated",
         await this.getQueueStatus(organizationId)
@@ -179,10 +212,11 @@ export class TokenService {
       logger.info("Token created successfully", {
         tokenId: token.id,
         tokenNumber: token.number,
+        position,
         estimatedWaitTime,
       });
 
-      return tokenWithEstimate;
+      return response;
     } catch (error) {
       logger.error("Failed to create token", {
         error: error.message,

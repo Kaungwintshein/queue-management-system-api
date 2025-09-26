@@ -48,6 +48,7 @@ export interface ServiceResult {
     serviceDuration?: number;
 }
 export declare class TokenService {
+    private getTokenPosition;
     createToken(request: CreateTokenRequest, organizationId: string, staffId?: string): Promise<TokenCreationResponse>;
     callNextToken(request: CallNextRequest, organizationId: string): Promise<Token | null>;
     completeService(request: CompleteServiceRequest, organizationId: string): Promise<ServiceResult>;

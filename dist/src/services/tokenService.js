@@ -7,6 +7,28 @@ const errors_1 = require("@/utils/errors");
 const logger_1 = require("@/utils/logger");
 const app_2 = require("@/app");
 class TokenService {
+    async getTokenPosition(tokenId, organizationId) {
+        const token = await app_1.prisma.token.findUnique({
+            where: { id: tokenId },
+            select: { customerType: true, priority: true, createdAt: true }
+        });
+        if (!token) {
+            return 0;
+        }
+        // Count tokens of the same type and priority that were created before this token
+        const position = await app_1.prisma.token.count({
+            where: {
+                organizationId,
+                customerType: token.customerType,
+                priority: token.priority,
+                status: "waiting",
+                createdAt: {
+                    lt: token.createdAt
+                }
+            }
+        });
+        return position + 1; // Position is 1-based
+    }
     async createToken(request, organizationId, staffId) {
         try {
             logger_1.logger.info("Creating token", {
@@ -77,19 +99,23 @@ class TokenService {
             });
             // Calculate estimated wait time
             const estimatedWaitTime = await this.calculateEstimatedWaitTime(organizationId, request.customerType, request.priority || 0, request.counterId);
-            const tokenWithEstimate = {
-                ...token,
+            // Calculate position in queue
+            const position = await this.getTokenPosition(token.id, organizationId);
+            const response = {
+                token,
+                position,
                 estimatedWaitTime,
             };
             // Emit real-time update
-            app_2.io.to(`org:${organizationId}`).emit("token:created", tokenWithEstimate);
+            app_2.io.to(`org:${organizationId}`).emit("token:created", response);
             app_2.io.to(`org:${organizationId}`).emit("queue:updated", await this.getQueueStatus(organizationId));
             logger_1.logger.info("Token created successfully", {
                 tokenId: token.id,
                 tokenNumber: token.number,
+                position,
                 estimatedWaitTime,
             });
-            return tokenWithEstimate;
+            return response;
         }
         catch (error) {
             logger_1.logger.error("Failed to create token", {

@@ -14,12 +14,12 @@ import { rateLimiter } from "@/middleware/rateLimiter";
 import { authRouter } from "@/routes/auth";
 import { countersRouter } from "@/routes/counters";
 import { rolesRouter } from "@/routes/roles";
-// Commented out non-auth routes to focus on authentication
-// import { tokensRouter } from "@/routes/tokens";
-// import { queueRouter } from "@/routes/queue";
-// import { staffRouter } from "@/routes/staff";
-// import { analyticsRouter } from "@/routes/analytics";
-// import { setupWebSocket } from "@/services/websocketService";
+// Import all routes
+import { tokensRouter } from "@/routes/tokens";
+import { queueRouter } from "@/routes/queue";
+import { staffRouter } from "@/routes/staff";
+import { analyticsRouter } from "@/routes/analytics";
+import { setupWebSocket } from "@/services/websocketService";
 import { logger } from "@/utils/logger";
 
 // Load environment variables
@@ -143,16 +143,14 @@ app.get("/health", (req, res) => {
   });
 });
 
-// API Routes - Authentication and Admin Management enabled
+// API Routes
 app.use("/api/auth", authRouter);
 app.use("/api/counters", countersRouter);
 app.use("/api/roles", rolesRouter);
-
-// Commented out non-auth routes to focus on authentication
-// app.use("/api/tokens", tokensRouter);
-// app.use("/api/queue", queueRouter);
-// app.use("/api/staff", staffRouter);
-// app.use("/api/analytics", analyticsRouter);
+app.use("/api/tokens", tokensRouter);
+app.use("/api/queue", queueRouter);
+app.use("/api/staff", staffRouter);
+app.use("/api/analytics", analyticsRouter);
 
 // 404 handler
 app.use("*", (req, res) => {
