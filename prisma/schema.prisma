@@ -1,0 +1,186 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CustomerType {
+  instant
+  browser
+  retail
+}
+
+enum TokenStatus {
+  waiting
+  called
+  serving
+  completed
+  cancelled
+  no_show
+}
+
+enum UserRole {
+  staff
+  admin
+  super_admin
+}
+
+model Organization {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String   @db.VarChar(100)
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users             User[]
+  tokens            Token[]
+  queueSettings     QueueSetting[]
+  counters          Counter[]
+  serviceSessions   ServiceSession[]
+  systemLogs        SystemLog[]
+  analyticsSnapshots AnalyticsSnapshot[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  username       String    @unique @db.VarChar(50)
+  email          String    @unique @db.VarChar(100)
+  passwordHash   String    @map("password_hash") @db.VarChar(255)
+  role           UserRole
+  permissions    Json      @default("{}")
+  isActive       Boolean   @default(true) @map("is_active")
+  lastLogin      DateTime? @map("last_login")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization     Organization     @relation(fields: [organizationId], references: [id])
+  tokens           Token[]
+  serviceSessions  ServiceSession[]
+  systemLogs       SystemLog[]
+  assignedCounters Counter[]
+
+  @@map("users")
+}
+
+model Counter {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  name           String  @db.VarChar(50)
+  isActive       Boolean @default(true) @map("is_active")
+  assignedStaffId String? @map("assigned_staff_id") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  assignedStaff User?       @relation(fields: [assignedStaffId], references: [id])
+  tokens        Token[]
+
+  @@map("counters")
+}
+
+model QueueSetting {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  customerType   CustomerType @map("customer_type")
+  prefix         String       @db.VarChar(5)
+  currentNumber  Int          @default(0) @map("current_number")
+  maxNumber      Int          @default(999) @map("max_number")
+  resetDaily     Boolean      @default(true) @map("reset_daily")
+  resetTime      DateTime     @default("1970-01-01T00:00:00Z") @map("reset_time") @db.Time(6)
+  isActive       Boolean      @default(true) @map("is_active")
+  priorityMultiplier Decimal  @default(1.0) @map("priority_multiplier") @db.Decimal(3, 2)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, customerType])
+  @@map("queue_settings")
+}
+
+model Token {
+  id                String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId    String       @map("organization_id") @db.Uuid
+  counterId         String?      @map("counter_id") @db.Uuid
+  number            String       @db.VarChar(10)
+  customerType      CustomerType @map("customer_type")
+  status            TokenStatus  @default(waiting)
+  priority          Int          @default(0)
+  createdAt         DateTime     @default(now()) @map("created_at")
+  calledAt          DateTime?    @map("called_at")
+  servedAt          DateTime?    @map("served_at")
+  completedAt       DateTime?    @map("completed_at")
+  cancelledAt       DateTime?    @map("cancelled_at")
+  servedBy          String?      @map("served_by") @db.Uuid
+  estimatedWaitTime Int?         @map("estimated_wait_time") // in minutes
+  actualWaitTime    Int?         @map("actual_wait_time") // in minutes
+  serviceDuration   Int?         @map("service_duration") // in minutes
+  notes             String?
+  metadata          Json         @default("{}")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  counter      Counter?     @relation(fields: [counterId], references: [id])
+  staff        User?        @relation(fields: [servedBy], references: [id])
+
+  @@unique([organizationId, number, createdAt])
+  @@map("tokens")
+}
+
+model ServiceSession {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  staffId          String    @map("staff_id") @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  startedAt        DateTime  @default(now()) @map("started_at")
+  endedAt          DateTime? @map("ended_at")
+  tokensServed     Int       @default(0) @map("tokens_served")
+  averageServiceTime Decimal? @map("average_service_time") @db.Decimal(5, 2)
+  breakTime        Int       @default(0) @map("break_time") // in minutes
+  notes            String?
+
+  staff        User         @relation(fields: [staffId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@map("service_sessions")
+}
+
+model SystemLog {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  userId         String?   @map("user_id") @db.Uuid
+  action         String    @db.VarChar(50)
+  entityType     String?   @map("entity_type") @db.VarChar(50)
+  entityId       String?   @map("entity_id") @db.Uuid
+  details        Json?
+  ipAddress      String?   @map("ip_address") @db.Inet
+  userAgent      String?   @map("user_agent")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User?        @relation(fields: [userId], references: [id])
+
+  @@map("system_logs")
+}
+
+model AnalyticsSnapshot {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  snapshotDate     DateTime @map("snapshot_date") @db.Date
+  totalTokens      Int      @default(0) @map("total_tokens")
+  tokensByType     Json     @default("{}") @map("tokens_by_type")
+  averageWaitTime  Decimal? @map("average_wait_time") @db.Decimal(5, 2)
+  peakHours        Json     @default("{}") @map("peak_hours")
+  staffPerformance Json     @default("{}") @map("staff_performance")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, snapshotDate])
+  @@map("analytics_snapshots")
+}
