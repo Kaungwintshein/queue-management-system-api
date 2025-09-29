@@ -8,7 +8,12 @@ import {
   User,
   QueueSetting,
 } from "@prisma/client";
-import { AppError, NotFoundError, ValidationError } from "@/utils/errors";
+import {
+  AppError,
+  NotFoundError,
+  ValidationError,
+  DatabaseError,
+} from "@/utils/errors";
 import { logger } from "@/utils/logger";
 import { io } from "@/app";
 import {
@@ -29,6 +34,9 @@ export interface QueueStats {
   totalCompleted: number;
   totalNoShow: number;
   averageWaitTime: number | null;
+  averageServiceTime: number;
+  peakHour: string;
+  estimatedWaitTime: number;
 }
 
 export interface CounterWithDetails {
@@ -59,7 +67,7 @@ export interface QueueStatusResponse {
     totalCompleted: number;
     averageWaitTime: number | null;
   };
-  queueSettings: Array<QueueSetting & { priorityMultiplier: number }>;
+  queueSettings: Array<QueueSetting>;
 }
 
 export interface TokenCreationResponse {
@@ -217,13 +225,22 @@ export class TokenService {
       });
 
       return response;
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
       logger.error("Failed to create token", {
-        error: error.message,
+        error: errorMessage,
         request,
         organizationId,
       });
-      throw error;
+
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      throw new DatabaseError("Failed to create token", {
+        originalError: errorMessage,
+      });
     }
   }
 
@@ -340,13 +357,104 @@ export class TokenService {
       });
 
       return result;
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
       logger.error("Failed to call next token", {
-        error: error.message,
+        error: errorMessage,
         request,
         organizationId,
       });
-      throw error;
+
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      throw new DatabaseError("Failed to call next token", {
+        originalError: errorMessage,
+      });
+    }
+  }
+
+  async startServing(
+    request: { tokenId: string; staffId: string },
+    organizationId: string
+  ): Promise<Token> {
+    try {
+      logger.info("Starting service for token", {
+        tokenId: request.tokenId,
+        staffId: request.staffId,
+        organizationId,
+      });
+
+      const token = await prisma.token.findFirst({
+        where: {
+          id: request.tokenId,
+          organizationId,
+          status: TokenStatus.called,
+        },
+        include: {
+          counter: true,
+          staff: {
+            select: {
+              id: true,
+              username: true,
+            },
+          },
+        },
+      });
+
+      if (!token) {
+        throw new NotFoundError("Token not in called status");
+      }
+
+      const updatedToken = await prisma.token.update({
+        where: { id: request.tokenId },
+        data: {
+          status: TokenStatus.serving,
+          servedAt: new Date(),
+        },
+        include: {
+          counter: true,
+          staff: {
+            select: {
+              id: true,
+              username: true,
+            },
+          },
+        },
+      });
+
+      // Emit real-time update
+      io.to(`org:${organizationId}`).emit("token:serving", updatedToken);
+      io.to(`org:${organizationId}`).emit(
+        "queue:updated",
+        await this.getQueueStatus(organizationId)
+      );
+
+      logger.info("Service started for token", {
+        tokenId: updatedToken.id,
+        tokenNumber: updatedToken.number,
+        staffId: request.staffId,
+      });
+
+      return updatedToken;
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
+      logger.error("Failed to start service", {
+        error: errorMessage,
+        request,
+        organizationId,
+      });
+
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      throw new DatabaseError("Failed to start service", {
+        originalError: errorMessage,
+      });
     }
   }
 
@@ -376,10 +484,32 @@ export class TokenService {
           },
         });
 
+        // Debug logging
+        logger.info("Token lookup for complete service", {
+          tokenId: request.tokenId,
+          organizationId,
+          tokenFound: !!token,
+          tokenStatus: token?.status,
+          foundTokenId: token?.id,
+        });
+
         if (!token) {
-          throw new NotFoundError(
-            "Token not found or not in serviceable state"
-          );
+          // Check if token exists at all
+          const anyToken = await tx.token.findFirst({
+            where: {
+              id: request.tokenId,
+              organizationId,
+            },
+          });
+
+          logger.warn("Token not found for complete service", {
+            tokenId: request.tokenId,
+            organizationId,
+            tokenExists: !!anyToken,
+            actualStatus: anyToken?.status,
+          });
+
+          throw new NotFoundError("Token not in serviceable state");
         }
 
         // Calculate service duration
@@ -399,7 +529,7 @@ export class TokenService {
             serviceDuration: request.serviceDuration || serviceDuration,
             notes: request.notes || token.notes,
             metadata: {
-              ...token.metadata,
+              ...(token.metadata as Record<string, any>),
               ...(request.rating && { rating: request.rating }),
             },
           },
@@ -456,30 +586,45 @@ export class TokenService {
           },
         });
 
-        return updatedToken;
+        return {
+          token: updatedToken,
+          serviceDuration: updatedToken.serviceDuration || 0,
+        };
       });
 
       // Emit real-time updates
-      io.to(`org:${organizationId}`).emit("token:completed", result);
+      io.to(`org:${organizationId}`).emit("token:completed", result.token);
       io.to(`org:${organizationId}`).emit(
         "queue:updated",
         await this.getQueueStatus(organizationId)
       );
 
       logger.info("Service completed successfully", {
-        tokenId: result.id,
-        tokenNumber: result.number,
+        tokenId: result.token.id,
+        tokenNumber: result.token.number,
         serviceDuration: result.serviceDuration,
       });
 
-      return result;
-    } catch (error) {
+      return {
+        token: result.token,
+        serviceDuration: result.serviceDuration || 0,
+      };
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
       logger.error("Failed to complete service", {
-        error: error.message,
+        error: errorMessage,
         request,
         organizationId,
       });
-      throw error;
+
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      throw new DatabaseError("Failed to complete service", {
+        originalError: errorMessage,
+      });
     }
   }
 
@@ -544,13 +689,22 @@ export class TokenService {
       });
 
       return result;
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
       logger.error("Failed to mark token as no-show", {
-        error: error.message,
+        error: errorMessage,
         request,
         organizationId,
       });
-      throw error;
+
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      throw new DatabaseError("Failed to mark token as no-show", {
+        originalError: errorMessage,
+      });
     }
   }
 
@@ -617,13 +771,22 @@ export class TokenService {
       });
 
       return result;
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
       logger.error("Failed to recall token", {
-        error: error.message,
+        error: errorMessage,
         request,
         organizationId,
       });
-      throw error;
+
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      throw new DatabaseError("Failed to recall token", {
+        originalError: errorMessage,
+      });
     }
   }
 
@@ -750,11 +913,8 @@ export class TokenService {
         where: { organizationId, isActive: true },
       });
 
-      // Transform queue settings to ensure proper types
-      const queueSettings = queueSettingsRaw.map((setting) => ({
-        ...setting,
-        priorityMultiplier: setting.priorityMultiplier.toNumber(),
-      }));
+      // Use queue settings as-is (keeping Decimal type)
+      const queueSettings = queueSettingsRaw;
 
       // Transform data to match frontend schema
       const transformedCounters = await Promise.all(
@@ -803,12 +963,21 @@ export class TokenService {
         },
         queueSettings,
       };
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
       logger.error("Failed to get queue status", {
-        error: error.message,
+        error: errorMessage,
         organizationId,
       });
-      throw error;
+
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      throw new DatabaseError("Failed to get queue status", {
+        originalError: errorMessage,
+      });
     }
   }
 

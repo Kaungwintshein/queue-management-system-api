@@ -9,6 +9,11 @@ import {
 import { queueStatusLimiter } from "@/middleware/rateLimiter";
 import { asyncHandler } from "@/middleware/errorHandler";
 import {
+  sendSuccessResponse,
+  sendBadRequestResponse,
+  sendNotFoundResponse,
+} from "@/utils/response";
+import {
   callNextRequestSchema,
   completeServiceRequestSchema,
   markNoShowRequestSchema,
@@ -54,10 +59,9 @@ router.get(
       });
 
       if (!defaultOrg) {
-        return res.json({
-          success: true,
-          message: "No queue data available",
-          data: {
+        return sendSuccessResponse(
+          res,
+          {
             currentServing: [],
             nextInQueue: [],
             recentlyServed: [],
@@ -73,7 +77,8 @@ router.get(
             },
             counterStats: [],
           },
-        });
+          "No queue data available"
+        );
       }
 
       organizationId = defaultOrg.id;
@@ -84,11 +89,11 @@ router.get(
       counterId
     );
 
-    res.json({
-      success: true,
-      message: "Queue status retrieved successfully",
-      data: queueStatus,
-    });
+    sendSuccessResponse(
+      res,
+      queueStatus,
+      "Queue status retrieved successfully"
+    );
   })
 );
 
@@ -141,11 +146,53 @@ router.post(
       req.user!.organizationId
     );
 
-    res.json({
-      success: true,
-      message: "Next token called successfully",
-      data: token,
-    });
+    sendSuccessResponse(res, token, "Next token called successfully");
+  })
+);
+
+/**
+ * @swagger
+ * /api/queue/start-serving:
+ *   post:
+ *     tags: [Queue Management]
+ *     summary: Start serving a called token
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - tokenId
+ *             properties:
+ *               tokenId:
+ *                 type: string
+ *                 format: uuid
+ *     responses:
+ *       200:
+ *         description: Service started successfully
+ *       404:
+ *         description: Token not found or not in called status
+ */
+router.post(
+  "/start-serving",
+  authenticate,
+  authorize([UserRole.staff, UserRole.admin, UserRole.super_admin]),
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { tokenId } = req.body;
+
+    if (!tokenId) {
+      return sendBadRequestResponse(res, "Token ID is required");
+    }
+
+    const token = await tokenService.startServing(
+      { tokenId, staffId: req.user!.id },
+      req.user!.organizationId
+    );
+
+    sendSuccessResponse(res, token, "Service started successfully");
   })
 );
 
@@ -203,11 +250,7 @@ router.post(
       req.user!.organizationId
     );
 
-    res.json({
-      success: true,
-      message: "Service completed successfully",
-      data: token,
-    });
+    sendSuccessResponse(res, token, "Service completed successfully");
   })
 );
 
@@ -258,11 +301,7 @@ router.post(
       req.user!.organizationId
     );
 
-    res.json({
-      success: true,
-      message: "Token marked as no-show successfully",
-      data: token,
-    });
+    sendSuccessResponse(res, token, "Token marked as no-show successfully");
   })
 );
 
@@ -315,11 +354,7 @@ router.post(
       req.user!.organizationId
     );
 
-    res.json({
-      success: true,
-      message: "Token recalled successfully",
-      data: token,
-    });
+    sendSuccessResponse(res, token, "Token recalled successfully");
   })
 );
 
@@ -361,11 +396,11 @@ router.get(
       return acc;
     }, {} as Record<string, any>);
 
-    res.json({
-      success: true,
-      message: "Queue settings retrieved successfully",
-      data: settingsByType,
-    });
+    sendSuccessResponse(
+      res,
+      settingsByType,
+      "Queue settings retrieved successfully"
+    );
   })
 );
 
@@ -499,10 +534,9 @@ router.patch(
       },
     });
 
-    res.json({
-      success: true,
-      message: "Queue settings updated successfully",
-      data: {
+    sendSuccessResponse(
+      res,
+      {
         id: updatedSetting.id,
         customerType: updatedSetting.customerType,
         prefix: updatedSetting.prefix,
@@ -513,7 +547,8 @@ router.patch(
         isActive: updatedSetting.isActive,
         priorityMultiplier: updatedSetting.priorityMultiplier.toNumber(),
       },
-    });
+      "Queue settings updated successfully"
+    );
   })
 );
 
@@ -580,14 +615,14 @@ router.post(
       },
     });
 
-    res.json({
-      success: true,
-      message: "Queue reset successfully",
-      data: {
+    sendSuccessResponse(
+      res,
+      {
         customerType: updatedSetting.customerType,
         currentNumber: updatedSetting.currentNumber,
       },
-    });
+      "Queue reset successfully"
+    );
   })
 );
 
@@ -721,11 +756,7 @@ router.get(
       },
     };
 
-    res.json({
-      success: true,
-      message: "Statistics retrieved successfully",
-      data: statistics,
-    });
+    sendSuccessResponse(res, statistics, "Statistics retrieved successfully");
   })
 );
 
