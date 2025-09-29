@@ -352,13 +352,15 @@ export class TokenService {
 
       io.to(`org:${organizationId}`).emit("token:called", result);
 
-      const queueStatus = await this.getQueueStatus(organizationId);
-      logger.info("Emitting queue:updated event", {
-        organizationId,
-        countersCount: queueStatus.counters?.length || 0,
-      });
-
-      io.to(`org:${organizationId}`).emit("queue:updated", queueStatus);
+      // Small delay to ensure database transaction is committed
+      setTimeout(async () => {
+        const queueStatus = await this.getQueueStatus(organizationId);
+        logger.info("Emitting queue:updated event", {
+          organizationId,
+          countersCount: queueStatus.counters?.length || 0,
+        });
+        io.to(`org:${organizationId}`).emit("queue:updated", queueStatus);
+      }, 10); // Reduced from 50ms to 10ms
 
       logger.info("Token called successfully", {
         tokenId: result.id,
@@ -446,13 +448,15 @@ export class TokenService {
 
       io.to(`org:${organizationId}`).emit("token:serving", updatedToken);
 
-      const queueStatus = await this.getQueueStatus(organizationId);
-      logger.info("Emitting queue:updated event", {
-        organizationId,
-        countersCount: queueStatus.counters?.length || 0,
-      });
-
-      io.to(`org:${organizationId}`).emit("queue:updated", queueStatus);
+      // Small delay to ensure database transaction is committed
+      setTimeout(async () => {
+        const queueStatus = await this.getQueueStatus(organizationId);
+        logger.info("Emitting queue:updated event", {
+          organizationId,
+          countersCount: queueStatus.counters?.length || 0,
+        });
+        io.to(`org:${organizationId}`).emit("queue:updated", queueStatus);
+      }, 10); // Reduced from 50ms to 10ms
 
       logger.info("Service started for token", {
         tokenId: updatedToken.id,
@@ -616,10 +620,12 @@ export class TokenService {
 
       // Emit real-time updates
       io.to(`org:${organizationId}`).emit("token:completed", result.token);
-      io.to(`org:${organizationId}`).emit(
-        "queue:updated",
-        await this.getQueueStatus(organizationId)
-      );
+
+      // Small delay to ensure database transaction is committed
+      setTimeout(async () => {
+        const queueStatus = await this.getQueueStatus(organizationId);
+        io.to(`org:${organizationId}`).emit("queue:updated", queueStatus);
+      }, 10); // Reduced from 50ms to 10ms
 
       logger.info("Service completed successfully", {
         tokenId: result.token.id,
