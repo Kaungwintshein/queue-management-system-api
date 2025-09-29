@@ -54,6 +54,7 @@ export interface CounterWithDetails {
   };
   currentToken: Token | null;
   nextTokens: Token[];
+  noShowTokens?: Token[];
   waitingCount: number;
   averageServiceTime: number | null;
 }
@@ -952,6 +953,9 @@ export class TokenService {
           const nextTokens = nextInQueue.filter(
             (t) => !t.counterId || t.counterId === counter.id
           );
+          const noShowTokens = noShowQueue.filter(
+            (t) => t.counterId === counter.id
+          );
           const waitingCount = nextTokens.length;
           const averageServiceTime = await this.getCounterAverageServiceTime(
             counter.id
@@ -974,6 +978,7 @@ export class TokenService {
             },
             currentToken,
             nextTokens,
+            noShowTokens,
             waitingCount,
             averageServiceTime,
           };
