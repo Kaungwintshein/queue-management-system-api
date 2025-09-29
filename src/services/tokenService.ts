@@ -343,11 +343,22 @@ export class TokenService {
       });
 
       // Emit real-time updates
+      logger.info("Emitting token:called event", {
+        tokenId: result.id,
+        tokenNumber: result.number,
+        organizationId,
+        counterId: result.counterId,
+      });
+
       io.to(`org:${organizationId}`).emit("token:called", result);
-      io.to(`org:${organizationId}`).emit(
-        "queue:updated",
-        await this.getQueueStatus(organizationId)
-      );
+
+      const queueStatus = await this.getQueueStatus(organizationId);
+      logger.info("Emitting queue:updated event", {
+        organizationId,
+        countersCount: queueStatus.counters?.length || 0,
+      });
+
+      io.to(`org:${organizationId}`).emit("queue:updated", queueStatus);
 
       logger.info("Token called successfully", {
         tokenId: result.id,
@@ -426,11 +437,22 @@ export class TokenService {
       });
 
       // Emit real-time update
+      logger.info("Emitting token:serving event", {
+        tokenId: updatedToken.id,
+        tokenNumber: updatedToken.number,
+        organizationId,
+        counterId: updatedToken.counterId,
+      });
+
       io.to(`org:${organizationId}`).emit("token:serving", updatedToken);
-      io.to(`org:${organizationId}`).emit(
-        "queue:updated",
-        await this.getQueueStatus(organizationId)
-      );
+
+      const queueStatus = await this.getQueueStatus(organizationId);
+      logger.info("Emitting queue:updated event", {
+        organizationId,
+        countersCount: queueStatus.counters?.length || 0,
+      });
+
+      io.to(`org:${organizationId}`).emit("queue:updated", queueStatus);
 
       logger.info("Service started for token", {
         tokenId: updatedToken.id,
