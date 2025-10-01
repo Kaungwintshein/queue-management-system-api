@@ -118,7 +118,20 @@ export const setupWebSocket = (io: SocketIOServer): void => {
       }
     } else {
       // For unauthenticated connections (display interface)
-      socket.join("public:display");
+      socket.join("display_screens");
+      logger.debug("Socket joined display_screens room (unauthenticated)", {
+        socketId: socket.id,
+      });
+
+      // If client provides org via query string, also join org-scoped display room
+      const orgId = (socket.handshake.query?.organizationId as string) || "";
+      if (orgId) {
+        socket.join(`display_screens:org:${orgId}`);
+        logger.debug("Socket joined org-scoped display room", {
+          socketId: socket.id,
+          organizationId: orgId,
+        });
+      }
     }
 
     // Handle room joining requests
@@ -362,8 +375,11 @@ const isValidRoom = (
   user?: { id: string; organizationId: string; role: string }
 ): boolean => {
   // Public rooms (no auth required)
-  const publicRooms = ["public:display", "queue:updates"];
+  const publicRooms = ["public:display", "queue:updates", "display_screens"];
   if (publicRooms.includes(room)) return true;
+
+  // Allow org-scoped display rooms without auth
+  if (room.startsWith("display_screens:org:")) return true;
 
   if (!user) return false;
 

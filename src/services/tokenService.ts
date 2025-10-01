@@ -352,6 +352,13 @@ export class TokenService {
       });
 
       io.to(`org:${organizationId}`).emit("token:called", result);
+      // Emit announcement only to display screens for this organization
+      io.to(`display_screens:org:${organizationId}`).emit("announce_queue", {
+        number: result.number,
+        counterId: result.counterId,
+        counter: result.counter,
+        organizationId,
+      });
 
       // Small delay to ensure database transaction is committed
       setTimeout(async () => {

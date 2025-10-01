@@ -166,8 +166,8 @@ app.use("*", (req, res) => {
 // Error handling middleware (must be last)
 app.use(errorHandler);
 
-// Setup WebSocket handlers - Commented out to focus on authentication
-// setupWebSocket(io);
+// Setup WebSocket handlers
+setupWebSocket(io);
 
 // Graceful shutdown
 process.on("SIGTERM", async () => {
