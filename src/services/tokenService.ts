@@ -796,6 +796,13 @@ export class TokenService {
 
       // Emit real-time updates
       io.to(`org:${organizationId}`).emit("token:recalled", result);
+      // Also announce recalls to display screens for this organization
+      io.to(`display_screens:org:${organizationId}`).emit("announce_queue", {
+        number: result.number,
+        counterId: result.counterId,
+        counter: result.counter,
+        organizationId,
+      });
       io.to(`org:${organizationId}`).emit(
         "queue:updated",
         await this.getQueueStatus(organizationId)
