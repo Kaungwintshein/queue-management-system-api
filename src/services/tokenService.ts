@@ -1035,10 +1035,16 @@ export class TokenService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const whereClause: Prisma.TokenWhereInput = {
+    // Base where clause without date filter for active tokens
+    const baseWhereClause: Prisma.TokenWhereInput = {
       organizationId,
-      createdAt: { gte: today },
       ...(counterId && { counterId }),
+    };
+
+    // Date filter only for completed tokens (for historical analysis)
+    const completedWhereClause: Prisma.TokenWhereInput = {
+      ...baseWhereClause,
+      createdAt: { gte: today },
     };
 
     const [
@@ -1049,27 +1055,27 @@ export class TokenService {
       completedTokens,
     ] = await Promise.all([
       prisma.token.count({
-        where: { ...whereClause, status: TokenStatus.waiting },
+        where: { ...baseWhereClause, status: TokenStatus.waiting },
       }),
 
       prisma.token.count({
         where: {
-          ...whereClause,
+          ...baseWhereClause,
           status: { in: [TokenStatus.called, TokenStatus.serving] },
         },
       }),
 
       prisma.token.count({
-        where: { ...whereClause, status: TokenStatus.completed },
+        where: { ...completedWhereClause, status: TokenStatus.completed },
       }),
 
       prisma.token.count({
-        where: { ...whereClause, status: TokenStatus.no_show },
+        where: { ...baseWhereClause, status: TokenStatus.no_show },
       }),
 
       prisma.token.findMany({
         where: {
-          ...whereClause,
+          ...completedWhereClause,
           status: TokenStatus.completed,
           calledAt: { not: null },
           completedAt: { not: null },
