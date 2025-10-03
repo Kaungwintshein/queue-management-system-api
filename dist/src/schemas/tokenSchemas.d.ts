@@ -537,21 +537,21 @@ export declare const queueStatusSchema: z.ZodObject<{
         peakHour: z.ZodOptional<z.ZodString>;
         estimatedWaitTime: z.ZodOptional<z.ZodNumber>;
     }, "strip", z.ZodTypeAny, {
-        averageWaitTime: number;
-        averageServiceTime: number;
         totalWaiting: number;
         totalServing: number;
         totalCompleted: number;
         totalNoShow: number;
+        averageWaitTime: number;
+        averageServiceTime: number;
         estimatedWaitTime?: number | undefined;
         peakHour?: string | undefined;
     }, {
-        averageWaitTime: number;
-        averageServiceTime: number;
         totalWaiting: number;
         totalServing: number;
         totalCompleted: number;
         totalNoShow: number;
+        averageWaitTime: number;
+        averageServiceTime: number;
         estimatedWaitTime?: number | undefined;
         peakHour?: string | undefined;
     }>;
@@ -768,12 +768,12 @@ export declare const queueStatusSchema: z.ZodObject<{
         metadata?: Record<string, any> | undefined;
     }[];
     stats: {
-        averageWaitTime: number;
-        averageServiceTime: number;
         totalWaiting: number;
         totalServing: number;
         totalCompleted: number;
         totalNoShow: number;
+        averageWaitTime: number;
+        averageServiceTime: number;
         estimatedWaitTime?: number | undefined;
         peakHour?: string | undefined;
     };
@@ -887,12 +887,12 @@ export declare const queueStatusSchema: z.ZodObject<{
         metadata?: Record<string, any> | undefined;
     }[];
     stats: {
-        averageWaitTime: number;
-        averageServiceTime: number;
         totalWaiting: number;
         totalServing: number;
         totalCompleted: number;
         totalNoShow: number;
+        averageWaitTime: number;
+        averageServiceTime: number;
         estimatedWaitTime?: number | undefined;
         peakHour?: string | undefined;
     };
@@ -1027,24 +1027,24 @@ export declare const tokenAnalyticsResponseSchema: z.ZodObject<{
     }>, z.ZodNumber>;
     counterBreakdown: z.ZodRecord<z.ZodString, z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
-    totalTokens: number;
+    averageWaitTime: number;
+    averageServiceTime: number;
     period: string;
+    totalTokens: number;
     completedTokens: number;
     cancelledTokens: number;
     noShowTokens: number;
-    averageWaitTime: number;
-    averageServiceTime: number;
     customerTypeBreakdown: Partial<Record<"browser" | "instant" | "retail", number>>;
     counterBreakdown: Record<string, number>;
     peakHour?: string | undefined;
 }, {
-    totalTokens: number;
+    averageWaitTime: number;
+    averageServiceTime: number;
     period: string;
+    totalTokens: number;
     completedTokens: number;
     cancelledTokens: number;
     noShowTokens: number;
-    averageWaitTime: number;
-    averageServiceTime: number;
     customerTypeBreakdown: Partial<Record<"browser" | "instant" | "retail", number>>;
     counterBreakdown: Record<string, number>;
     peakHour?: string | undefined;

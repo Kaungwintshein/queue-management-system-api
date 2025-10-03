@@ -19,12 +19,12 @@ const rateLimiter_1 = require("@/middleware/rateLimiter");
 const auth_1 = require("@/routes/auth");
 const counters_1 = require("@/routes/counters");
 const roles_1 = require("@/routes/roles");
-// Commented out non-auth routes to focus on authentication
-// import { tokensRouter } from "@/routes/tokens";
-// import { queueRouter } from "@/routes/queue";
-// import { staffRouter } from "@/routes/staff";
-// import { analyticsRouter } from "@/routes/analytics";
-// import { setupWebSocket } from "@/services/websocketService";
+// Import all routes
+const tokens_1 = require("@/routes/tokens");
+const queue_1 = require("@/routes/queue");
+const staff_1 = require("@/routes/staff");
+const analytics_1 = require("@/routes/analytics");
+const websocketService_1 = require("@/services/websocketService");
 const logger_1 = require("@/utils/logger");
 // Load environment variables
 dotenv_1.default.config();
@@ -119,15 +119,14 @@ app.get("/health", (req, res) => {
         environment: process.env.NODE_ENV,
     });
 });
-// API Routes - Authentication and Admin Management enabled
+// API Routes
 app.use("/api/auth", auth_1.authRouter);
 app.use("/api/counters", counters_1.countersRouter);
 app.use("/api/roles", roles_1.rolesRouter);
-// Commented out non-auth routes to focus on authentication
-// app.use("/api/tokens", tokensRouter);
-// app.use("/api/queue", queueRouter);
-// app.use("/api/staff", staffRouter);
-// app.use("/api/analytics", analyticsRouter);
+app.use("/api/tokens", tokens_1.tokensRouter);
+app.use("/api/queue", queue_1.queueRouter);
+app.use("/api/staff", staff_1.staffRouter);
+app.use("/api/analytics", analytics_1.analyticsRouter);
 // 404 handler
 app.use("*", (req, res) => {
     res.status(404).json({
@@ -140,8 +139,8 @@ app.use("*", (req, res) => {
 });
 // Error handling middleware (must be last)
 app.use(errorHandler_1.errorHandler);
-// Setup WebSocket handlers - Commented out to focus on authentication
-// setupWebSocket(io);
+// Setup WebSocket handlers
+(0, websocketService_1.setupWebSocket)(io);
 // Graceful shutdown
 process.on("SIGTERM", async () => {
     logger_1.logger.info("SIGTERM received, shutting down gracefully");

@@ -6,6 +6,7 @@ const tokenService_1 = require("@/services/tokenService");
 const auth_1 = require("@/middleware/auth");
 const rateLimiter_1 = require("@/middleware/rateLimiter");
 const errorHandler_1 = require("@/middleware/errorHandler");
+const response_1 = require("@/utils/response");
 const tokenSchemas_1 = require("@/schemas/tokenSchemas");
 const client_1 = require("@prisma/client");
 const app_1 = require("@/app");
@@ -39,35 +40,27 @@ router.get("/status", auth_1.optionalAuth, rateLimiter_1.queueStatusLimiter, (0,
             orderBy: { createdAt: "asc" },
         });
         if (!defaultOrg) {
-            return res.json({
-                success: true,
-                message: "No queue data available",
-                data: {
-                    currentServing: [],
-                    nextInQueue: [],
-                    recentlyServed: [],
-                    noShowQueue: [],
-                    stats: {
-                        totalWaiting: 0,
-                        totalServing: 0,
-                        totalCompleted: 0,
-                        totalNoShow: 0,
-                        averageWaitTime: 0,
-                        averageServiceTime: 0,
-                        estimatedWaitTime: 0,
-                    },
-                    counterStats: [],
+            return (0, response_1.sendSuccessResponse)(res, {
+                currentServing: [],
+                nextInQueue: [],
+                recentlyServed: [],
+                noShowQueue: [],
+                stats: {
+                    totalWaiting: 0,
+                    totalServing: 0,
+                    totalCompleted: 0,
+                    totalNoShow: 0,
+                    averageWaitTime: 0,
+                    averageServiceTime: 0,
+                    estimatedWaitTime: 0,
                 },
-            });
+                counterStats: [],
+            }, "No queue data available");
         }
         organizationId = defaultOrg.id;
     }
     const queueStatus = await tokenService_1.tokenService.getQueueStatus(organizationId, counterId);
-    res.json({
-        success: true,
-        message: "Queue status retrieved successfully",
-        data: queueStatus,
-    });
+    (0, response_1.sendSuccessResponse)(res, queueStatus, "Queue status retrieved successfully");
 }));
 /**
  * @swagger
@@ -109,11 +102,41 @@ router.post("/call-next", auth_1.authenticate, (0, auth_1.authorize)([client_1.U
         staffId: req.user.id,
     });
     const token = await tokenService_1.tokenService.callNextToken(validatedData, req.user.organizationId);
-    res.json({
-        success: true,
-        message: "Next token called successfully",
-        data: token,
-    });
+    (0, response_1.sendSuccessResponse)(res, token, "Next token called successfully");
+}));
+/**
+ * @swagger
+ * /api/queue/start-serving:
+ *   post:
+ *     tags: [Queue Management]
+ *     summary: Start serving a called token
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - tokenId
+ *             properties:
+ *               tokenId:
+ *                 type: string
+ *                 format: uuid
+ *     responses:
+ *       200:
+ *         description: Service started successfully
+ *       404:
+ *         description: Token not found or not in called status
+ */
+router.post("/start-serving", auth_1.authenticate, (0, auth_1.authorize)([client_1.UserRole.staff, client_1.UserRole.admin, client_1.UserRole.super_admin]), (0, errorHandler_1.asyncHandler)(async (req, res) => {
+    const { tokenId } = req.body;
+    if (!tokenId) {
+        return (0, response_1.sendBadRequestResponse)(res, "Token ID is required");
+    }
+    const token = await tokenService_1.tokenService.startServing({ tokenId, staffId: req.user.id }, req.user.organizationId);
+    (0, response_1.sendSuccessResponse)(res, token, "Service started successfully");
 }));
 /**
  * @swagger
@@ -160,11 +183,7 @@ router.post("/complete-service", auth_1.authenticate, (0, auth_1.authorize)([cli
         staffId: req.user.id,
     });
     const token = await tokenService_1.tokenService.completeService(validatedData, req.user.organizationId);
-    res.json({
-        success: true,
-        message: "Service completed successfully",
-        data: token,
-    });
+    (0, response_1.sendSuccessResponse)(res, token, "Service completed successfully");
 }));
 /**
  * @swagger
@@ -204,11 +223,7 @@ router.post("/mark-no-show", auth_1.authenticate, (0, auth_1.authorize)([client_
         staffId: req.user.id,
     });
     const token = await tokenService_1.tokenService.markNoShow(validatedData, req.user.organizationId);
-    res.json({
-        success: true,
-        message: "Token marked as no-show successfully",
-        data: token,
-    });
+    (0, response_1.sendSuccessResponse)(res, token, "Token marked as no-show successfully");
 }));
 /**
  * @swagger
@@ -250,11 +265,49 @@ router.post("/recall-token", auth_1.authenticate, (0, auth_1.authorize)([client_
         staffId: req.user.id,
     });
     const token = await tokenService_1.tokenService.recallToken(validatedData, req.user.organizationId);
-    res.json({
-        success: true,
-        message: "Token recalled successfully",
-        data: token,
-    });
+    (0, response_1.sendSuccessResponse)(res, token, "Token recalled successfully");
+}));
+/**
+ * @swagger
+ * /api/queue/repeat-announce-token:
+ *   post:
+ *     tags: [Queue Management]
+ *     summary: Repeat announcement for a token
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - tokenId
+ *               - counterId
+ *               - staffId
+ *             properties:
+ *               tokenId:
+ *                 type: string
+ *                 format: uuid
+ *               counterId:
+ *                 type: string
+ *                 format: uuid
+ *               staffId:
+ *                 type: string
+ *                 format: uuid
+ *     responses:
+ *       200:
+ *         description: Token announcement repeated successfully
+ *       404:
+ *         description: Token not found
+ */
+router.post("/repeat-announce-token", auth_1.authenticate, (0, auth_1.authorize)([client_1.UserRole.staff, client_1.UserRole.admin, client_1.UserRole.super_admin]), (0, errorHandler_1.asyncHandler)(async (req, res) => {
+    const { tokenId, counterId } = req.body;
+    if (!tokenId || !counterId) {
+        return (0, response_1.sendBadRequestResponse)(res, "Token ID and Counter ID are required");
+    }
+    const token = await tokenService_1.tokenService.repeatAnnounceToken({ tokenId, counterId, staffId: req.user.id }, req.user.organizationId);
+    (0, response_1.sendSuccessResponse)(res, token, "Token announcement repeated successfully");
 }));
 /**
  * @swagger
@@ -289,11 +342,7 @@ router.get("/settings", auth_1.authenticate, (0, errorHandler_1.asyncHandler)(as
         };
         return acc;
     }, {});
-    res.json({
-        success: true,
-        message: "Queue settings retrieved successfully",
-        data: settingsByType,
-    });
+    (0, response_1.sendSuccessResponse)(res, settingsByType, "Queue settings retrieved successfully");
 }));
 /**
  * @swagger
@@ -415,21 +464,17 @@ router.patch("/settings", auth_1.authenticate, (0, auth_1.authorize)([client_1.U
             },
         },
     });
-    res.json({
-        success: true,
-        message: "Queue settings updated successfully",
-        data: {
-            id: updatedSetting.id,
-            customerType: updatedSetting.customerType,
-            prefix: updatedSetting.prefix,
-            currentNumber: updatedSetting.currentNumber,
-            maxNumber: updatedSetting.maxNumber,
-            resetDaily: updatedSetting.resetDaily,
-            resetTime: updatedSetting.resetTime,
-            isActive: updatedSetting.isActive,
-            priorityMultiplier: updatedSetting.priorityMultiplier.toNumber(),
-        },
-    });
+    (0, response_1.sendSuccessResponse)(res, {
+        id: updatedSetting.id,
+        customerType: updatedSetting.customerType,
+        prefix: updatedSetting.prefix,
+        currentNumber: updatedSetting.currentNumber,
+        maxNumber: updatedSetting.maxNumber,
+        resetDaily: updatedSetting.resetDaily,
+        resetTime: updatedSetting.resetTime,
+        isActive: updatedSetting.isActive,
+        priorityMultiplier: updatedSetting.priorityMultiplier.toNumber(),
+    }, "Queue settings updated successfully");
 }));
 /**
  * @swagger
@@ -486,14 +531,10 @@ router.post("/reset", auth_1.authenticate, (0, auth_1.authorize)([client_1.UserR
             },
         },
     });
-    res.json({
-        success: true,
-        message: "Queue reset successfully",
-        data: {
-            customerType: updatedSetting.customerType,
-            currentNumber: updatedSetting.currentNumber,
-        },
-    });
+    (0, response_1.sendSuccessResponse)(res, {
+        customerType: updatedSetting.customerType,
+        currentNumber: updatedSetting.currentNumber,
+    }, "Queue reset successfully");
 }));
 /**
  * @swagger
@@ -603,10 +644,6 @@ router.get("/statistics", auth_1.authenticate, (0, errorHandler_1.asyncHandler)(
             byHour: tokensByHour,
         },
     };
-    res.json({
-        success: true,
-        message: "Statistics retrieved successfully",
-        data: statistics,
-    });
+    (0, response_1.sendSuccessResponse)(res, statistics, "Statistics retrieved successfully");
 }));
 //# sourceMappingURL=queue.js.map

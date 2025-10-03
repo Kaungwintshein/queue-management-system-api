@@ -1239,6 +1239,66 @@ export class TokenService {
     );
     return Math.ceil(total / recentTokens.length);
   }
+
+  /**
+   * Repeat announcement for a token
+   */
+  async repeatAnnounceToken(
+    data: { tokenId: string; counterId: string; staffId: string },
+    organizationId: string
+  ): Promise<Token> {
+    const { tokenId, counterId } = data;
+
+    // Find the token
+    const token = await prisma.token.findFirst({
+      where: {
+        id: tokenId,
+        organizationId,
+        status: { in: [TokenStatus.called, TokenStatus.serving] },
+      },
+      include: {
+        counter: true,
+        staff: {
+          select: {
+            id: true,
+            username: true,
+          },
+        },
+      },
+    });
+
+    if (!token) {
+      throw new NotFoundError("Token not found or not in announceable state");
+    }
+
+    io.to(`org:${organizationId}`).emit("token:called", token);
+    // Emit announcement only to display screens for this organization
+    io.to(`display_screens:org:${organizationId}`).emit("announce_queue", {
+      number: token.number,
+      counterId: token.counterId,
+      counter: token.counter,
+      organizationId,
+    });
+
+    // Small delay to ensure database transaction is committed
+    setTimeout(async () => {
+      const queueStatus = await this.getQueueStatus(organizationId);
+      logger.info("Emitting queue:updated event", {
+        organizationId,
+        countersCount: queueStatus.counters?.length || 0,
+      });
+      io.to(`org:${organizationId}`).emit("queue:updated", queueStatus);
+    }, 10); // Reduced from 50ms to 10ms
+
+    logger.info("Token announcement repeated", {
+      tokenId,
+      tokenNumber: token.number,
+      counterId,
+      organizationId,
+    });
+
+    return token;
+  }
 }
 
 export const tokenService = new TokenService();

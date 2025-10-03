@@ -360,6 +360,63 @@ router.post(
 
 /**
  * @swagger
+ * /api/queue/repeat-announce-token:
+ *   post:
+ *     tags: [Queue Management]
+ *     summary: Repeat announcement for a token
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - tokenId
+ *               - counterId
+ *               - staffId
+ *             properties:
+ *               tokenId:
+ *                 type: string
+ *                 format: uuid
+ *               counterId:
+ *                 type: string
+ *                 format: uuid
+ *               staffId:
+ *                 type: string
+ *                 format: uuid
+ *     responses:
+ *       200:
+ *         description: Token announcement repeated successfully
+ *       404:
+ *         description: Token not found
+ */
+router.post(
+  "/repeat-announce-token",
+  authenticate,
+  authorize([UserRole.staff, UserRole.admin, UserRole.super_admin]),
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const { tokenId, counterId } = req.body;
+
+    if (!tokenId || !counterId) {
+      return sendBadRequestResponse(
+        res,
+        "Token ID and Counter ID are required"
+      );
+    }
+
+    const token = await tokenService.repeatAnnounceToken(
+      { tokenId, counterId, staffId: req.user!.id },
+      req.user!.organizationId
+    );
+
+    sendSuccessResponse(res, token, "Token announcement repeated successfully");
+  })
+);
+
+/**
+ * @swagger
  * /api/queue/settings:
  *   get:
  *     tags: [Queue Management]

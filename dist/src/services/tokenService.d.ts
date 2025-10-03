@@ -6,6 +6,9 @@ export interface QueueStats {
     totalCompleted: number;
     totalNoShow: number;
     averageWaitTime: number | null;
+    averageServiceTime: number;
+    peakHour: string;
+    estimatedWaitTime: number;
 }
 export interface CounterWithDetails {
     counter: {
@@ -22,6 +25,7 @@ export interface CounterWithDetails {
     };
     currentToken: Token | null;
     nextTokens: Token[];
+    noShowTokens?: Token[];
     waitingCount: number;
     averageServiceTime: number | null;
 }
@@ -34,9 +38,7 @@ export interface QueueStatusResponse {
         totalCompleted: number;
         averageWaitTime: number | null;
     };
-    queueSettings: Array<QueueSetting & {
-        priorityMultiplier: number;
-    }>;
+    queueSettings: Array<QueueSetting>;
 }
 export interface TokenCreationResponse {
     token: Token;
@@ -51,6 +53,10 @@ export declare class TokenService {
     private getTokenPosition;
     createToken(request: CreateTokenRequest, organizationId: string, staffId?: string): Promise<TokenCreationResponse>;
     callNextToken(request: CallNextRequest, organizationId: string): Promise<Token | null>;
+    startServing(request: {
+        tokenId: string;
+        staffId: string;
+    }, organizationId: string): Promise<Token>;
     completeService(request: CompleteServiceRequest, organizationId: string): Promise<ServiceResult>;
     markNoShow(request: MarkNoShowRequest, organizationId: string): Promise<Token>;
     recallToken(request: RecallTokenRequest, organizationId: string): Promise<Token>;
@@ -59,6 +65,14 @@ export declare class TokenService {
     private calculateEstimatedWaitTime;
     private getAverageServiceTime;
     private getCounterAverageServiceTime;
+    /**
+     * Repeat announcement for a token
+     */
+    repeatAnnounceToken(data: {
+        tokenId: string;
+        counterId: string;
+        staffId: string;
+    }, organizationId: string): Promise<Token>;
 }
 export declare const tokenService: TokenService;
 //# sourceMappingURL=tokenService.d.ts.map

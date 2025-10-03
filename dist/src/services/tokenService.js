@@ -10,7 +10,7 @@ class TokenService {
     async getTokenPosition(tokenId, organizationId) {
         const token = await app_1.prisma.token.findUnique({
             where: { id: tokenId },
-            select: { customerType: true, priority: true, createdAt: true }
+            select: { customerType: true, priority: true, createdAt: true },
         });
         if (!token) {
             return 0;
@@ -23,9 +23,9 @@ class TokenService {
                 priority: token.priority,
                 status: "waiting",
                 createdAt: {
-                    lt: token.createdAt
-                }
-            }
+                    lt: token.createdAt,
+                },
+            },
         });
         return position + 1; // Position is 1-based
     }
@@ -118,12 +118,18 @@ class TokenService {
             return response;
         }
         catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
             logger_1.logger.error("Failed to create token", {
-                error: error.message,
+                error: errorMessage,
                 request,
                 organizationId,
             });
-            throw error;
+            if (error instanceof errors_1.AppError) {
+                throw error;
+            }
+            throw new errors_1.DatabaseError("Failed to create token", {
+                originalError: errorMessage,
+            });
         }
     }
     async callNextToken(request, organizationId) {
@@ -211,8 +217,29 @@ class TokenService {
                 return updatedToken;
             });
             // Emit real-time updates
+            logger_1.logger.info("Emitting token:called event", {
+                tokenId: result.id,
+                tokenNumber: result.number,
+                organizationId,
+                counterId: result.counterId,
+            });
             app_2.io.to(`org:${organizationId}`).emit("token:called", result);
-            app_2.io.to(`org:${organizationId}`).emit("queue:updated", await this.getQueueStatus(organizationId));
+            // Emit announcement only to display screens for this organization
+            app_2.io.to(`display_screens:org:${organizationId}`).emit("announce_queue", {
+                number: result.number,
+                counterId: result.counterId,
+                counter: result.counter,
+                organizationId,
+            });
+            // Small delay to ensure database transaction is committed
+            setTimeout(async () => {
+                const queueStatus = await this.getQueueStatus(organizationId);
+                logger_1.logger.info("Emitting queue:updated event", {
+                    organizationId,
+                    countersCount: queueStatus.counters?.length || 0,
+                });
+                app_2.io.to(`org:${organizationId}`).emit("queue:updated", queueStatus);
+            }, 10); // Reduced from 50ms to 10ms
             logger_1.logger.info("Token called successfully", {
                 tokenId: result.id,
                 tokenNumber: result.number,
@@ -222,12 +249,99 @@ class TokenService {
             return result;
         }
         catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
             logger_1.logger.error("Failed to call next token", {
-                error: error.message,
+                error: errorMessage,
                 request,
                 organizationId,
             });
-            throw error;
+            if (error instanceof errors_1.AppError) {
+                throw error;
+            }
+            throw new errors_1.DatabaseError("Failed to call next token", {
+                originalError: errorMessage,
+            });
+        }
+    }
+    async startServing(request, organizationId) {
+        try {
+            logger_1.logger.info("Starting service for token", {
+                tokenId: request.tokenId,
+                staffId: request.staffId,
+                organizationId,
+            });
+            const token = await app_1.prisma.token.findFirst({
+                where: {
+                    id: request.tokenId,
+                    organizationId,
+                    status: client_1.TokenStatus.called,
+                },
+                include: {
+                    counter: true,
+                    staff: {
+                        select: {
+                            id: true,
+                            username: true,
+                        },
+                    },
+                },
+            });
+            if (!token) {
+                throw new errors_1.NotFoundError("Token not in called status");
+            }
+            const updatedToken = await app_1.prisma.token.update({
+                where: { id: request.tokenId },
+                data: {
+                    status: client_1.TokenStatus.serving,
+                    servedAt: new Date(),
+                },
+                include: {
+                    counter: true,
+                    staff: {
+                        select: {
+                            id: true,
+                            username: true,
+                        },
+                    },
+                },
+            });
+            // Emit real-time update
+            logger_1.logger.info("Emitting token:serving event", {
+                tokenId: updatedToken.id,
+                tokenNumber: updatedToken.number,
+                organizationId,
+                counterId: updatedToken.counterId,
+            });
+            app_2.io.to(`org:${organizationId}`).emit("token:serving", updatedToken);
+            // Small delay to ensure database transaction is committed
+            setTimeout(async () => {
+                const queueStatus = await this.getQueueStatus(organizationId);
+                logger_1.logger.info("Emitting queue:updated event", {
+                    organizationId,
+                    countersCount: queueStatus.counters?.length || 0,
+                });
+                app_2.io.to(`org:${organizationId}`).emit("queue:updated", queueStatus);
+            }, 10); // Reduced from 50ms to 10ms
+            logger_1.logger.info("Service started for token", {
+                tokenId: updatedToken.id,
+                tokenNumber: updatedToken.number,
+                staffId: request.staffId,
+            });
+            return updatedToken;
+        }
+        catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+            logger_1.logger.error("Failed to start service", {
+                error: errorMessage,
+                request,
+                organizationId,
+            });
+            if (error instanceof errors_1.AppError) {
+                throw error;
+            }
+            throw new errors_1.DatabaseError("Failed to start service", {
+                originalError: errorMessage,
+            });
         }
     }
     async completeService(request, organizationId) {
@@ -251,8 +365,29 @@ class TokenService {
                         },
                     },
                 });
+                // Debug logging
+                logger_1.logger.info("Token lookup for complete service", {
+                    tokenId: request.tokenId,
+                    organizationId,
+                    tokenFound: !!token,
+                    tokenStatus: token?.status,
+                    foundTokenId: token?.id,
+                });
                 if (!token) {
-                    throw new errors_1.NotFoundError("Token not found or not in serviceable state");
+                    // Check if token exists at all
+                    const anyToken = await tx.token.findFirst({
+                        where: {
+                            id: request.tokenId,
+                            organizationId,
+                        },
+                    });
+                    logger_1.logger.warn("Token not found for complete service", {
+                        tokenId: request.tokenId,
+                        organizationId,
+                        tokenExists: !!anyToken,
+                        actualStatus: anyToken?.status,
+                    });
+                    throw new errors_1.NotFoundError("Token not in serviceable state");
                 }
                 // Calculate service duration
                 const serviceDuration = token.calledAt
@@ -319,25 +454,41 @@ class TokenService {
                         },
                     },
                 });
-                return updatedToken;
+                return {
+                    token: updatedToken,
+                    serviceDuration: updatedToken.serviceDuration || 0,
+                };
             });
             // Emit real-time updates
-            app_2.io.to(`org:${organizationId}`).emit("token:completed", result);
-            app_2.io.to(`org:${organizationId}`).emit("queue:updated", await this.getQueueStatus(organizationId));
+            app_2.io.to(`org:${organizationId}`).emit("token:completed", result.token);
+            // Small delay to ensure database transaction is committed
+            setTimeout(async () => {
+                const queueStatus = await this.getQueueStatus(organizationId);
+                app_2.io.to(`org:${organizationId}`).emit("queue:updated", queueStatus);
+            }, 10); // Reduced from 50ms to 10ms
             logger_1.logger.info("Service completed successfully", {
-                tokenId: result.id,
-                tokenNumber: result.number,
+                tokenId: result.token.id,
+                tokenNumber: result.token.number,
                 serviceDuration: result.serviceDuration,
             });
-            return result;
+            return {
+                token: result.token,
+                serviceDuration: result.serviceDuration || 0,
+            };
         }
         catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
             logger_1.logger.error("Failed to complete service", {
-                error: error.message,
+                error: errorMessage,
                 request,
                 organizationId,
             });
-            throw error;
+            if (error instanceof errors_1.AppError) {
+                throw error;
+            }
+            throw new errors_1.DatabaseError("Failed to complete service", {
+                originalError: errorMessage,
+            });
         }
     }
     async markNoShow(request, organizationId) {
@@ -391,12 +542,18 @@ class TokenService {
             return result;
         }
         catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
             logger_1.logger.error("Failed to mark token as no-show", {
-                error: error.message,
+                error: errorMessage,
                 request,
                 organizationId,
             });
-            throw error;
+            if (error instanceof errors_1.AppError) {
+                throw error;
+            }
+            throw new errors_1.DatabaseError("Failed to mark token as no-show", {
+                originalError: errorMessage,
+            });
         }
     }
     async recallToken(request, organizationId) {
@@ -444,6 +601,13 @@ class TokenService {
             });
             // Emit real-time updates
             app_2.io.to(`org:${organizationId}`).emit("token:recalled", result);
+            // Also announce recalls to display screens for this organization
+            app_2.io.to(`display_screens:org:${organizationId}`).emit("announce_queue", {
+                number: result.number,
+                counterId: result.counterId,
+                counter: result.counter,
+                organizationId,
+            });
             app_2.io.to(`org:${organizationId}`).emit("queue:updated", await this.getQueueStatus(organizationId));
             logger_1.logger.info("Token recalled successfully", {
                 tokenId: result.id,
@@ -452,12 +616,18 @@ class TokenService {
             return result;
         }
         catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
             logger_1.logger.error("Failed to recall token", {
-                error: error.message,
+                error: errorMessage,
                 request,
                 organizationId,
             });
-            throw error;
+            if (error instanceof errors_1.AppError) {
+                throw error;
+            }
+            throw new errors_1.DatabaseError("Failed to recall token", {
+                originalError: errorMessage,
+            });
         }
     }
     async getQueueStatus(organizationId, counterId) {
@@ -566,15 +736,13 @@ class TokenService {
             const queueSettingsRaw = await app_1.prisma.queueSetting.findMany({
                 where: { organizationId, isActive: true },
             });
-            // Transform queue settings to ensure proper types
-            const queueSettings = queueSettingsRaw.map((setting) => ({
-                ...setting,
-                priorityMultiplier: setting.priorityMultiplier.toNumber(),
-            }));
+            // Use queue settings as-is (keeping Decimal type)
+            const queueSettings = queueSettingsRaw;
             // Transform data to match frontend schema
             const transformedCounters = await Promise.all(counters.map(async (counter) => {
                 const currentToken = currentServing.find((t) => t.counterId === counter.id) || null;
                 const nextTokens = nextInQueue.filter((t) => !t.counterId || t.counterId === counter.id);
+                const noShowTokens = noShowQueue.filter((t) => t.counterId === counter.id);
                 const waitingCount = nextTokens.length;
                 const averageServiceTime = await this.getCounterAverageServiceTime(counter.id);
                 return {
@@ -594,6 +762,7 @@ class TokenService {
                     },
                     currentToken,
                     nextTokens,
+                    noShowTokens,
                     waitingCount,
                     averageServiceTime,
                 };
@@ -611,11 +780,17 @@ class TokenService {
             };
         }
         catch (error) {
+            const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
             logger_1.logger.error("Failed to get queue status", {
-                error: error.message,
+                error: errorMessage,
                 organizationId,
             });
-            throw error;
+            if (error instanceof errors_1.AppError) {
+                throw error;
+            }
+            throw new errors_1.DatabaseError("Failed to get queue status", {
+                originalError: errorMessage,
+            });
         }
     }
     async getQueueStats(organizationId, counterId) {
@@ -763,6 +938,49 @@ class TokenService {
             return 0;
         const total = recentTokens.reduce((sum, token) => sum + (token.serviceDuration || 0), 0);
         return Math.ceil(total / recentTokens.length);
+    }
+    /**
+     * Repeat announcement for a token
+     */
+    async repeatAnnounceToken(data, organizationId) {
+        const { tokenId, counterId, staffId } = data;
+        // Find the token
+        const token = await app_1.prisma.token.findFirst({
+            where: {
+                id: tokenId,
+                organizationId,
+                status: { in: [client_1.TokenStatus.called, client_1.TokenStatus.serving] },
+            },
+            include: {
+                counter: true,
+                staff: {
+                    select: {
+                        id: true,
+                        username: true,
+                    },
+                },
+            },
+        });
+        if (!token) {
+            throw new errors_1.NotFoundError("Token not found or not in announceable state");
+        }
+        // Emit WebSocket event for display announcement
+        const announceData = {
+            tokenNumber: token.number,
+            counterId: token.counterId,
+            counterName: token.counter?.name || "Unknown Counter",
+            timestamp: new Date().toISOString(),
+        };
+        // Emit to organization room and public display room
+        app_2.io.to(`org:${organizationId}`).emit("display:announce", announceData);
+        app_2.io.to("public:display").emit("display:announce", announceData);
+        logger_1.logger.info("Token announcement repeated", {
+            tokenId,
+            tokenNumber: token.number,
+            counterId,
+            organizationId,
+        });
+        return token;
     }
 }
 exports.TokenService = TokenService;
